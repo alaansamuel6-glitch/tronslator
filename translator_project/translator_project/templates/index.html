@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Переводчик на Python + Flask</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🌐 Онлайн-переводчик</h1>
+            <p class="subtitle">Переводите текст на разные языки бесплатно</p>
+        </header>
+
+        <div class="translator-form">
+            <div class="input-group">
+                <label for="text">✏️ Введите текст для перевода</label>
+                <div class="textarea-container">
+                    <textarea 
+                        id="text" 
+                        name="text" 
+                        rows="5" 
+                        placeholder="Например: Hello, how are you? или Привет, как дела?"
+                    >{{ original_text }}</textarea>
+                    <button type="button" class="voice-input-btn" id="voiceInputBtn" title="Голосовой ввод">
+                        🎙️
+                    </button>
+                </div>
+                <div class="button-group">
+                    <button type="button" class="speak-original" id="speakOriginalBtn">
+                        🔊 Озвучить текст
+                    </button>
+                </div>
+            </div>
+
+            <div class="language-row">
+                <div class="lang-box">
+                    <label>🌍 С языка</label>
+                    <select id="source_lang" name="source_lang">
+                        <option value="auto" {% if source_lang == 'auto' %}selected{% endif %}>🤖 Автоопределение</option>
+                        {% for code, name in languages.items() %}
+                            <option value="{{ code }}" {% if code == source_lang %}selected{% endif %}>
+                                {{ name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <button type="button" class="swap-all-btn" id="swapAllBtn" title="Поменять языки и текст">
+                    🔄
+                </button>
+
+                <div class="lang-box">
+                    <label>🎯 На язык</label>
+                    <select id="target_lang" name="target_lang">
+                        {% for code, name in languages.items() %}
+                            <option value="{{ code }}" {% if code == target_lang %}selected{% endif %}>
+                                {{ name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="result" id="resultBox" {% if not translated_text %}style="display: none;"{% endif %}>
+                <div class="result-header">
+                    <h3>📝 Результат перевода</h3>
+                    <div class="result-info">
+                        <small>Переведено с помощью Google Translate</small>
+                    </div>
+                </div>
+                <div class="result-content" id="translatedText">
+                    {{ translated_text }}
+                </div>
+                <div class="result-actions">
+                    <button class="speak-translated" id="speakTranslatedBtn">
+                        🔊 Озвучить перевод
+                    </button>
+                    <button class="copy-result" id="copyBtn">
+                        📋 Копировать текст
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Создано с ❤️ на Python + Flask | Бесплатный переводчик</p>
+        </footer>
+    </div>
+
+    <audio id="audioPlayer" style="display: none;"></audio>
+
+    <script>
+        let currentAudio = null;
+        let isPlaying = false;
+        let recognition = null;
+        let isListening = false;
+        
+        function stopCurrentAudio() {
+            if (currentAudio) {
+                currentAudio.pause();
+                currentAudio.currentTime = 0;
+                currentAudio = null;
+            }
+            isPlaying = false;
+            
+            const speakOriginalBtn = document.getElementById('speakOriginalBtn');
+            const speakTranslatedBtn = document.getElementById('speakTranslatedBtn');
+            
+            if (speakOriginalBtn && speakOriginalBtn.disabled) {
+                speakOriginalBtn.disabled = false;
+                speakOriginalBtn.innerHTML = '🔊 Озвучить текст';
+            }
+            
+            if (speakTranslatedBtn && speakTranslatedBtn.disabled) {
+                speakTranslatedBtn.disabled = false;
+                speakTranslatedBtn.innerHTML = '🔊 Озвучить перевод';
+            }
+        }
+        
+        async function autoTranslate() {
+            const text = document.getElementById('text').value;
+            const sourceLang = document.getElementById('source_lang').value;
+            const targetLang = document.getElementById('target_lang').value;
+            
+            if (!text.trim()) {
+                document.getElementById('resultBox').style.display = 'none';
+                return;
+            }
+            
+            try {
+                const response = await fetch('/auto_translate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        source_lang: sourceLang,
+                        target_lang: targetLang
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    document.getElementById('translatedText').innerText = data.translated;
+                    document.getElementById('resultBox').style.display = 'block';
+                } else {
+                    console.error('Ошибка перевода:', data.error);
+                }
+            } catch (error) {
+                console.error('Ошибка:', error);
+            }
+        }
+        
+        let timeoutId;
+        document.getElementById('text').addEventListener('input', function() {
+            stopCurrentAudio();
+            clearTimeout(timeoutId);
+            timeoutId = setTimeout(autoTranslate, 500);
+        });
+        
+        document.getElementById('source_lang').addEventListener('change', function() {
+            autoTranslate();
+        });
+        
+        document.getElementById('target_lang').addEventListener('change', function() {
+            autoTranslate();
+        });
+        
+        async function copyToClipboard() {
+            const text = document.getElementById('translatedText').innerText;
+            const cleanText = text.trim();
+            
+            navigator.clipboard.writeText(cleanText).then(() => {
+                const btn = document.getElementById('copyBtn');
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '✅ Скопировано!';
+                setTimeout(() => {
+                    btn.innerHTML = originalHtml;
+                }, 2000);
+            }).catch(() => {
+                alert('Ошибка при копировании');
+            });
+        }
+        
+        document.getElementById('copyBtn')?.addEventListener('click', copyToClipboard);
+        
+        async function speakText(text, lang, buttonElement, buttonType) {
+            if (!text || !text.trim()) {
+                alert('Нет текста для озвучивания');
+                return;
+            }
+            
+            if (isPlaying) {
+                stopCurrentAudio();
+                if (!text.trim()) return;
+            }
+            
+            stopCurrentAudio();
+            
+            const originalText = buttonElement.innerHTML;
+            buttonElement.innerHTML = '🔄 Загрузка...';
+            buttonElement.disabled = true;
+            isPlaying = true;
+            
+            try {
+                const response = await fetch('/speak', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        lang: lang
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const audioPlayer = document.getElementById('audioPlayer');
+                    audioPlayer.src = 'data:audio/mp3;base64,' + data.audio;
+                    currentAudio = audioPlayer;
+                    
+                    audioPlayer.play();
+                    buttonElement.innerHTML = '▶️ Воспроизведение...';
+                    
+                    audioPlayer.onended = function() {
+                        if (currentAudio === audioPlayer) {
+                            currentAudio = null;
+                        }
+                        isPlaying = false;
+                        buttonElement.innerHTML = originalText;
+                        buttonElement.disabled = false;
+                    };
+                    
+                    audioPlayer.onerror = function() {
+                        isPlaying = false;
+                        buttonElement.innerHTML = originalText;
+                        buttonElement.disabled = false;
+                        currentAudio = null;
+                        alert('Ошибка воспроизведения');
+                    };
+                } else {
+                    alert('Ошибка: ' + data.error);
+                    buttonElement.innerHTML = originalText;
+                    buttonElement.disabled = false;
+                    isPlaying = false;
+                }
+            } catch (error) {
+                alert('Ошибка при озвучивании');
+                buttonElement.innerHTML = originalText;
+                buttonElement.disabled = false;
+                isPlaying = false;
+            }
+        }
+        
+        document.getElementById('swapAllBtn')?.addEventListener('click', async function() {
+            stopCurrentAudio();
+            
+            const translatedText = document.getElementById('translatedText').innerText;
+            const sourceLang = document.getElementById('source_lang').value;
+            const targetLang = document.getElementById('target_lang').value;
+            
+            const sourceSelect = document.getElementById('source_lang');
+            const targetSelect = document.getElementById('target_lang');
+            
+            sourceSelect.value = targetLang;
+            targetSelect.value = sourceLang;
+            
+            document.getElementById('text').value = translatedText;
+            
+            if (translatedText.trim()) {
+                setTimeout(() => {
+                    autoTranslate();
+                }, 100);
+            }
+            
+            this.style.transform = 'rotate(180deg)';
+            setTimeout(() => {
+                this.style.transform = 'rotate(0deg)';
+            }, 300);
+        });
+        
+        document.getElementById('speakOriginalBtn')?.addEventListener('click', function() {
+            const text = document.getElementById('text').value;
+            if (!text.trim()) {
+                alert('Нет текста для озвучивания');
+                return;
+            }
+            
+            let lang = document.getElementById('source_lang').value;
+            if (lang === 'auto') {
+                lang = 'ru';
+            }
+            speakText(text, lang, this, 'original');
+        });
+        
+        document.getElementById('speakTranslatedBtn')?.addEventListener('click', function() {
+            const text = document.getElementById('translatedText')?.innerText;
+            if (!text || !text.trim()) {
+                alert('Нет текста для озвучивания');
+                return;
+            }
+            
+            const lang = document.getElementById('target_lang').value;
+            speakText(text, lang, this, 'translated');
+        });
+        
+        // Голосовой ввод - ОБНОВЛЕННАЯ ВЕРСИЯ (очищает поле перед записью)
+        function initSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                console.warn('Браузер не поддерживает голосовой ввод');
+                const voiceBtn = document.getElementById('voiceInputBtn');
+                if (voiceBtn) {
+                    voiceBtn.style.opacity = '0.5';
+                    voiceBtn.title = 'Голосовой ввод не поддерживается вашим браузером';
+                    voiceBtn.disabled = true;
+                }
+                return null;
+            }
+            
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const recognition = new SpeechRecognition();
+            
+            recognition.continuous = false;
+            recognition.interimResults = false;
+            recognition.lang = getRecognitionLanguage();
+            
+            return recognition;
+        }
+        
+        function getRecognitionLanguage() {
+            const sourceLang = document.getElementById('source_lang').value;
+            const langMap = {
+                'ru': 'ru-RU',
+                'en': 'en-US',
+                'fr': 'fr-FR',
+                'de': 'de-DE',
+                'es': 'es-ES',
+                'it': 'it-IT',
+                'ja': 'ja-JP',
+                'ko': 'ko-KR',
+                'ar': 'ar-SA'
+            };
+            return langMap[sourceLang] || 'ru-RU';
+        }
+        
+        document.getElementById('voiceInputBtn')?.addEventListener('click', function() {
+            if (isListening) {
+                if (recognition) {
+                    recognition.stop();
+                }
+                return;
+            }
+            
+            if (!recognition) {
+                recognition = initSpeechRecognition();
+                if (!recognition) {
+                    alert('Ваш браузер не поддерживает голосовой ввод. Пожалуйста, используйте Chrome, Edge или Safari.');
+                    return;
+                }
+            }
+            
+            // Очищаем текстовое поле перед началом новой записи
+            const textarea = document.getElementById('text');
+            textarea.value = '';
+            
+            recognition.lang = getRecognitionLanguage();
+            
+            recognition.onstart = function() {
+                isListening = true;
+                const btn = document.getElementById('voiceInputBtn');
+                btn.classList.add('listening');
+                btn.innerHTML = '🎙️🎤';
+                btn.title = 'Идет запись... Нажмите для остановки';
+                
+                textarea.placeholder = '🎤 Слушаю... Говорите...';
+            };
+            
+            recognition.onresult = function(event) {
+                const transcript = event.results[0][0].transcript;
+                
+                // Заменяем весь текст новым распознанным
+                textarea.value = transcript;
+                
+                // Запускаем автоматический перевод
+                textarea.dispatchEvent(new Event('input'));
+                
+                const btn = document.getElementById('voiceInputBtn');
+                btn.classList.remove('listening');
+                btn.innerHTML = '🎙️';
+                btn.title = 'Голосовой ввод';
+                isListening = false;
+                
+                textarea.placeholder = 'Например: Hello, how are you? или Привет, как дела?';
+            };
+            
+            recognition.onerror = function(event) {
+                console.error('Ошибка распознавания:', event.error);
+                let errorMessage = 'Ошибка голосового ввода';
+                
+                switch(event.error) {
+                    case 'no-speech':
+                        errorMessage = 'Речь не обнаружена. Попробуйте еще раз.';
+                        // Если речи не было, очищаем поле или оставляем как есть
+                        if (textarea.value === '') {
+                            // Оставляем пустым
+                        }
+                        break;
+                    case 'audio-capture':
+                        errorMessage = 'Микрофон не найден. Проверьте подключение микрофона.';
+                        break;
+                    case 'not-allowed':
+                        errorMessage = 'Доступ к микрофону запрещен. Разрешите доступ в настройках браузера.';
+                        break;
+                    default:
+                        errorMessage = `Ошибка: ${event.error}`;
+                }
+                
+                alert(errorMessage);
+                
+                const btn = document.getElementById('voiceInputBtn');
+                btn.classList.remove('listening');
+                btn.innerHTML = '🎙️';
+                btn.title = 'Голосовой ввод';
+                isListening = false;
+                
+                textarea.placeholder = 'Например: Hello, how are you? или Привет, как дела?';
+            };
+            
+            recognition.onend = function() {
+                if (isListening) {
+                    const btn = document.getElementById('voiceInputBtn');
+                    btn.classList.remove('listening');
+                    btn.innerHTML = '🎙️';
+                    btn.title = 'Голосовой ввод';
+                    isListening = false;
+                    
+                    textarea.placeholder = 'Например: Hello, how are you? или Привет, как дела?';
+                }
+            };
+            
+            try {
+                recognition.start();
+            } catch (error) {
+                console.error('Ошибка запуска распознавания:', error);
+                alert('Не удалось запустить голосовой ввод');
+                isListening = false;
+            }
+        });
+        
+        document.getElementById('source_lang')?.addEventListener('change', function() {
+            if (recognition) {
+                recognition.lang = getRecognitionLanguage();
+            }
+        });
+        
+        if (document.getElementById('text').value.trim()) {
+            autoTranslate();
+        }
+        
+        // Инициализация голосового ввода при загрузке
+        if (document.getElementById('voiceInputBtn')) {
+            initSpeechRecognition();
+        }
+    </script>
+</body>
+</html>
